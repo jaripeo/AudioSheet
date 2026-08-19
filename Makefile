@@ -57,9 +57,9 @@ bootstrap-py: $(UV) ## Install Python 3.11 and the core dependencies
 	@echo ">> installing CPython $(PYTHON_VERSION)"
 	@$(UV) python install $(PYTHON_VERSION)
 	@echo ">> creating core/.venv"
-	@cd core && $(UV) venv --python $(PYTHON_VERSION) .venv
+	@test -x $(PY) || (cd core && $(UV) venv --python $(PYTHON_VERSION) .venv)
 	@echo ">> syncing core dependencies"
-	@cd core && $(UV) sync --group dev
+	@cd core && $(UV) sync --group dev --extra ingest
 
 bootstrap-ts: $(UV) ## Install Node, pnpm and the workspace dependencies
 	@echo ">> installing Node and pnpm into .tooling"

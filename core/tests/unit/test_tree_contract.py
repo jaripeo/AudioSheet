@@ -192,8 +192,6 @@ def test_every_public_function_is_annotated() -> None:
 @pytest.mark.parametrize(
     ("module_name", "attribute"),
     [
-        ("audiosheet.ingest.resample", "resample"),
-        ("audiosheet.ingest.loudness", "integrated_lufs"),
         ("audiosheet.analysis.beats", "track_beats"),
         ("audiosheet.analysis.meter", "estimate_meter"),
         ("audiosheet.separation.demucs_runner", "resolve_device"),

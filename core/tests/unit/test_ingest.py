@@ -6,23 +6,38 @@ decoding exists; for now it covers the two pieces that have no audio behind them
 
 from __future__ import annotations
 
+import hashlib
+import math
 import struct
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import pytest
+import soundfile as sf
 
 from audiosheet.config import limits
 from audiosheet.config.constants import (
     MP3_FALLBACK_TRIM_SAMPLES,
+    PCM_VARIANTS,
     SILENCE_FLOOR_DBFS,
     SILENCE_MIN_SPAN_S,
+    TARGET_LUFS,
+    TRUE_PEAK_CEILING_DBTP,
 )
 from audiosheet.ingest import decode
-from audiosheet.ingest.loudness import dbfs_to_amplitude, detect_edge_silence
-from audiosheet.ingest.resample import downmix
+from audiosheet.ingest.decode import Pcm
+from audiosheet.ingest.loudness import (
+    amplitude_to_dbfs,
+    dbfs_to_amplitude,
+    detect_edge_silence,
+    integrated_lufs,
+    normalise,
+    true_peak_dbtp,
+)
+from audiosheet.ingest.resample import SOXR_QUALITY, downmix, resample, to_channels
 from audiosheet.ingest.sniff import (
     ID3_MAGIC,
     MP3_FRAME_SYNC,
@@ -33,7 +48,14 @@ from audiosheet.ingest.sniff import (
     sniff_bytes,
     sniff_file,
 )
-from audiosheet.pipeline.errors import AudioSheetError, ErrorCode
+from audiosheet.pipeline.cache import StageCache
+from audiosheet.pipeline.errors import (
+    AudioSheetError,
+    ErrorCode,
+    StageCancelledError,
+    WarningCode,
+)
+from audiosheet.pipeline.stage import StageContext
 
 #: The frame syncs ARCHITECTURE.md Section 1.3 enumerates by name.
 NORMATIVE_FRAME_SYNC = (b"\xff\xfb", b"\xff\xf3", b"\xff\xfa")
@@ -634,3 +656,565 @@ def test_edge_silence_rejects_bad_input() -> None:
         detect_edge_silence(np.zeros(64, dtype=np.float32), RATE)
     with pytest.raises(ValueError, match="sample rate"):
         detect_edge_silence(np.zeros((1, 64), dtype=np.float32), 0)
+
+
+# ---------------------------------------------------------------------------
+# Audio fixtures — synthesised, never random (INV-2)
+# ---------------------------------------------------------------------------
+
+SR = 44100
+
+
+def sine(seconds: float, freq: float = 440.0, amplitude: float = 0.3, rate: int = SR) -> Pcm:
+    """Return a deterministic mono sine as planar float32 PCM."""
+    t = np.arange(round(seconds * rate), dtype=np.float64) / rate
+    return (amplitude * np.sin(2 * np.pi * freq * t)).astype(np.float32).reshape(1, -1)
+
+
+def stereo_signal(seconds: float, rate: int = SR) -> Pcm:
+    """Return a deterministic two-channel signal with distinct channels."""
+    left = sine(seconds, 440.0, 0.3, rate)[0]
+    right = sine(seconds, 660.0, 0.2, rate)[0]
+    return np.stack([left, right]).astype(np.float32)
+
+
+def write_wav(path: Path, pcm: Pcm, rate: int = SR, subtype: str = "FLOAT") -> Path:
+    """Write planar PCM to a WAV file in the given libsndfile subtype."""
+    sf.write(path, np.ascontiguousarray(pcm.T), rate, subtype=subtype, format="WAV")
+    return path
+
+
+def write_mp3(path: Path, pcm: Pcm, rate: int = SR) -> Path:
+    """Write planar PCM to a real LAME-encoded MP3."""
+    sf.write(path, np.ascontiguousarray(pcm.T), rate, format="MP3")
+    return path
+
+
+@pytest.fixture
+def ctx(tmp_path: Path) -> StageContext:
+    """Return a stage context backed by a throwaway cache."""
+    return StageContext(job_id="test-job", cache=StageCache(tmp_path / ".audiosheet"))
+
+
+@pytest.fixture
+def fake_ffmpeg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Install a stand-in ffmpeg that decodes through libsndfile.
+
+    The vendored binary is a licensing decision, not a test dependency. This
+    stand-in honours the same argument vector, so the subprocess plumbing, the
+    argument order and the failure handling are all exercised for real.
+    """
+    script = tmp_path / "ffmpeg"
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "import soundfile\n"
+        "argv = sys.argv[1:]\n"
+        "source = argv[argv.index('-i') + 1]\n"
+        "data, rate = soundfile.read(source, dtype='float32', always_2d=True)\n"
+        "soundfile.write(argv[-1], data, rate, subtype='FLOAT', format='WAV')\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    monkeypatch.setenv(decode.FFMPEG_ENV, str(script))
+    return script
+
+
+# ---------------------------------------------------------------------------
+# ffmpeg resolution — ARCHITECTURE.md Section 1.3, step 3
+# ---------------------------------------------------------------------------
+
+
+def test_ffmpeg_defaults_to_the_vendored_location(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(decode.FFMPEG_ENV, raising=False)
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.ffmpeg_binary()
+    assert excinfo.value.code is ErrorCode.E_INGEST_DECODE
+    assert str(excinfo.value.detail["path"]).endswith("vendor/ffmpeg/ffmpeg")
+
+
+def test_a_missing_ffmpeg_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(decode.FFMPEG_ENV, str(tmp_path / "nowhere"))
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.ffmpeg_binary()
+    assert excinfo.value.code is ErrorCode.E_INGEST_DECODE
+    assert excinfo.value.detail["override"] == decode.FFMPEG_ENV
+
+
+def test_a_non_executable_ffmpeg_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    binary = tmp_path / "ffmpeg"
+    binary.write_text("not executable", encoding="utf-8")
+    binary.chmod(0o644)
+    monkeypatch.setenv(decode.FFMPEG_ENV, str(binary))
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.ffmpeg_binary()
+    assert excinfo.value.code is ErrorCode.E_INGEST_DECODE
+
+
+def test_the_system_path_is_never_consulted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """INV-2: an arbitrary build would not decode like the one the gates measured."""
+    impostor = tmp_path / "bin"
+    impostor.mkdir()
+    (impostor / "ffmpeg").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (impostor / "ffmpeg").chmod(0o755)
+    monkeypatch.setenv("PATH", str(impostor))
+    monkeypatch.delenv(decode.FFMPEG_ENV, raising=False)
+    with pytest.raises(AudioSheetError):
+        decode.ffmpeg_binary()
+
+
+def test_the_override_is_honoured(fake_ffmpeg: Path) -> None:
+    assert decode.ffmpeg_binary() == fake_ffmpeg
+
+
+def test_the_ffmpeg_command_carries_the_normative_flags() -> None:
+    """Section 1.3 step 3 pins -nostdin -hide_banner -vn -map 0:a:0."""
+    argv = decode.ffmpeg_command(Path("/ff"), Path("/in.mp3"), Path("/out.wav"))
+    assert argv[0] == "/ff"
+    for flag in ("-nostdin", "-hide_banner", "-vn"):
+        assert flag in argv
+    assert argv[argv.index("-map") + 1] == "0:a:0"
+    assert argv[argv.index("-i") + 1] == "/in.mp3"
+    assert argv[-1] == "/out.wav"
+
+
+def test_input_flags_precede_the_input_and_output_flags_follow_it() -> None:
+    """An output option placed before -i is silently ignored by ffmpeg."""
+    argv = decode.ffmpeg_command(Path("/ff"), Path("/in.mp3"), Path("/out.wav"))
+    dash_i = argv.index("-i")
+    assert argv.index("-nostdin") < dash_i
+    assert argv.index("-hide_banner") < dash_i
+    assert argv.index("-vn") > dash_i
+    assert argv.index("-map") > dash_i
+
+
+def test_a_failing_ffmpeg_reports_its_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = tmp_path / "ffmpeg"
+    script.write_text("#!/bin/sh\necho 'moov atom not found' >&2\nexit 1\n", encoding="utf-8")
+    script.chmod(0o755)
+    monkeypatch.setenv(decode.FFMPEG_ENV, str(script))
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.ffmpeg_decode(tmp_path / "whatever.mp3")
+    assert excinfo.value.code is ErrorCode.E_INGEST_DECODE
+    assert excinfo.value.detail["returncode"] == 1
+    assert "moov atom not found" in str(excinfo.value.detail["stderr"])
+
+
+def test_an_ffmpeg_that_writes_nothing_is_a_decode_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = tmp_path / "ffmpeg"
+    script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    script.chmod(0o755)
+    monkeypatch.setenv(decode.FFMPEG_ENV, str(script))
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.ffmpeg_decode(tmp_path / "whatever.mp3")
+    assert excinfo.value.code is ErrorCode.E_INGEST_DECODE
+
+
+# ---------------------------------------------------------------------------
+# WAV decoding — ARCHITECTURE.md Section 1.3, step 3
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("subtype", ["PCM_U8", "PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE"])
+def test_every_accepted_wav_subtype_decodes(tmp_path: Path, subtype: str) -> None:
+    """Section 1.3 accepts PCM 8/16/24/32-bit int and 32/64-bit float."""
+    path = write_wav(tmp_path / "take.wav", stereo_signal(0.5), subtype=subtype)
+    pcm, rate = decode.read_pcm(path)
+    assert rate == SR
+    assert pcm.dtype == np.float32
+    assert pcm.shape == (2, round(0.5 * SR))
+
+
+def test_decoded_pcm_is_planar_not_interleaved(tmp_path: Path) -> None:
+    """Channels are rows: (channels, samples), never (samples, channels)."""
+    path = write_wav(tmp_path / "take.wav", stereo_signal(0.5))
+    pcm, _ = decode.read_pcm(path)
+    assert pcm.shape[0] == 2
+    np.testing.assert_allclose(pcm[0], sine(0.5, 440.0, 0.3)[0], atol=1e-6)
+    np.testing.assert_allclose(pcm[1], sine(0.5, 660.0, 0.2)[0], atol=1e-6)
+
+
+def test_a_corrupt_wav_is_a_decode_failure(tmp_path: Path) -> None:
+    path = tmp_path / "broken.wav"
+    path.write_bytes(wav_header() + b"\xff" * 32)
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.read_pcm(path)
+    assert excinfo.value.code is ErrorCode.E_INGEST_DECODE
+
+
+# ---------------------------------------------------------------------------
+# Resampling — ARCHITECTURE.md Section 1.3, step 4
+# ---------------------------------------------------------------------------
+
+
+def test_the_soxr_quality_is_very_high() -> None:
+    """Section 1.3 mandates SoX VHQ, not a cheaper preset."""
+    assert SOXR_QUALITY == "VHQ"
+
+
+@pytest.mark.parametrize("target", [22050, 16000, 48000])
+def test_resampling_produces_the_expected_length(target: int) -> None:
+    out = resample(stereo_signal(1.0), SR, target)
+    assert out.shape[0] == 2
+    assert out.shape[1] == pytest.approx(target, rel=0.01)
+
+
+def test_resampling_preserves_planar_float32() -> None:
+    out = resample(stereo_signal(0.5), SR, 16000)
+    assert out.dtype == np.float32
+    assert out.ndim == 2
+
+
+def test_a_no_op_rate_change_returns_the_input() -> None:
+    pcm = stereo_signal(0.2)
+    assert resample(pcm, SR, SR) is pcm
+
+
+def test_resampling_preserves_the_tone() -> None:
+    """A 440 Hz sine is still 440 Hz after the rate change."""
+    out = resample(sine(1.0, 440.0), SR, 16000)
+    spectrum = np.abs(np.fft.rfft(out[0]))
+    peak_hz = float(np.fft.rfftfreq(out.shape[1], 1 / 16000)[int(np.argmax(spectrum))])
+    assert peak_hz == pytest.approx(440.0, abs=2.0)
+
+
+def test_resampling_is_deterministic() -> None:
+    """INV-2: two runs of the same input are byte-identical."""
+    pcm = stereo_signal(0.5)
+    first = resample(pcm, SR, 22050)
+    second = resample(pcm, SR, 22050)
+    assert first.tobytes() == second.tobytes()
+
+
+def test_resampling_does_not_mutate_its_input() -> None:
+    pcm = stereo_signal(0.3)
+    before = pcm.copy()
+    resample(pcm, SR, 16000)
+    np.testing.assert_array_equal(pcm, before)
+
+
+def test_resampling_rejects_bad_input() -> None:
+    with pytest.raises(ValueError, match="planar"):
+        resample(np.zeros(64, dtype=np.float32), SR, 16000)
+    with pytest.raises(ValueError, match="positive"):
+        resample(stereo_signal(0.1), 0, 16000)
+    with pytest.raises(ValueError, match="positive"):
+        resample(stereo_signal(0.1), SR, 0)
+
+
+# ---------------------------------------------------------------------------
+# Channel conforming
+# ---------------------------------------------------------------------------
+
+
+def test_mono_is_duplicated_into_both_stereo_channels() -> None:
+    """A mono source must fill the stereo variant, not leave one side silent."""
+    upmixed = to_channels(sine(0.1), 2)
+    assert upmixed.shape[0] == 2
+    np.testing.assert_array_equal(upmixed[0], upmixed[1])
+
+
+def test_conforming_down_uses_the_equal_weight_downmix() -> None:
+    np.testing.assert_allclose(to_channels(ramp(6), 2), downmix(ramp(6), 2))
+
+
+def test_conforming_to_the_current_count_is_a_no_op() -> None:
+    pcm = stereo_signal(0.1)
+    assert to_channels(pcm, 2) is pcm
+
+
+def test_conforming_rejects_bad_input() -> None:
+    with pytest.raises(ValueError, match="planar"):
+        to_channels(np.zeros(64, dtype=np.float32), 2)
+    with pytest.raises(ValueError, match="positive"):
+        to_channels(stereo_signal(0.1), 0)
+
+
+# ---------------------------------------------------------------------------
+# Loudness — ARCHITECTURE.md Section 1.3, step 5
+# ---------------------------------------------------------------------------
+
+
+def test_the_loudness_targets_are_the_normative_values() -> None:
+    assert TARGET_LUFS == -18.0
+    assert TRUE_PEAK_CEILING_DBTP == -1.0
+
+
+def test_amplitude_and_dbfs_round_trip() -> None:
+    for dbfs in (-60.0, -18.0, -1.0, 0.0):
+        assert amplitude_to_dbfs(dbfs_to_amplitude(dbfs)) == pytest.approx(dbfs)
+    assert amplitude_to_dbfs(0.0) == -math.inf
+
+
+def test_integrated_loudness_is_measured() -> None:
+    quiet = integrated_lufs(sine(2.0, 440.0, 0.05), SR)
+    loud = integrated_lufs(sine(2.0, 440.0, 0.5), SR)
+    assert loud > quiet
+    assert loud - quiet == pytest.approx(20.0, abs=0.5)
+
+
+def test_digital_silence_has_no_defined_loudness() -> None:
+    assert integrated_lufs(np.zeros((2, 2 * SR), dtype=np.float32), SR) == -math.inf
+
+
+def test_normalising_reaches_the_loudness_target() -> None:
+    normalised, gain_db = normalise(sine(3.0, 440.0, 0.05), SR)
+    assert integrated_lufs(normalised, SR) == pytest.approx(TARGET_LUFS, abs=0.1)
+    assert gain_db > 0.0
+
+
+def test_a_loud_input_is_attenuated_to_the_target() -> None:
+    normalised, gain_db = normalise(sine(3.0, 440.0, 0.5), SR)
+    assert integrated_lufs(normalised, SR) == pytest.approx(TARGET_LUFS, abs=0.1)
+    assert gain_db < 0.0
+
+
+def test_the_true_peak_ceiling_is_never_exceeded() -> None:
+    """When the target and the ceiling conflict, headroom wins (EBU R128)."""
+    normalised, gain_db = normalise(sine(3.0, 5000.0, 0.999), SR)
+    assert true_peak_dbtp(normalised, SR) <= TRUE_PEAK_CEILING_DBTP + 1e-6
+    assert gain_db < 0.0
+
+
+def test_the_true_peak_is_at_least_the_sample_peak() -> None:
+    """Inter-sample peaks are what the sample peak misses."""
+    pcm = sine(0.5, 11025.0, 0.9)
+    assert true_peak_dbtp(pcm, SR) >= amplitude_to_dbfs(float(np.abs(pcm).max())) - 1e-6
+
+
+def test_silence_is_returned_unchanged_with_no_gain() -> None:
+    silent = np.zeros((2, 2 * SR), dtype=np.float32)
+    normalised, gain_db = normalise(silent, SR)
+    assert gain_db == 0.0
+    assert normalised is silent
+
+
+def test_normalising_does_not_mutate_its_input() -> None:
+    """INV-3: the display copy is derived from the untouched original."""
+    pcm = sine(2.0, 440.0, 0.2)
+    before = pcm.copy()
+    normalise(pcm, SR)
+    np.testing.assert_array_equal(pcm, before)
+
+
+def test_normalising_is_deterministic() -> None:
+    pcm = stereo_signal(2.0)
+    first, first_gain = normalise(pcm, SR)
+    second, second_gain = normalise(pcm, SR)
+    assert first.tobytes() == second.tobytes()
+    assert first_gain == second_gain
+
+
+def test_the_gain_is_a_single_linear_scale() -> None:
+    """The display copy is recoverable exactly by undoing the gain."""
+    pcm = sine(2.0, 440.0, 0.2)
+    normalised, gain_db = normalise(pcm, SR)
+    np.testing.assert_allclose(normalised / dbfs_to_amplitude(gain_db), pcm, rtol=1e-5)
+
+
+def test_loudness_rejects_bad_input() -> None:
+    with pytest.raises(ValueError, match="planar"):
+        integrated_lufs(np.zeros(64, dtype=np.float32), SR)
+    with pytest.raises(ValueError, match="sample rate"):
+        integrated_lufs(np.zeros((1, SR), dtype=np.float32), 0)
+    with pytest.raises(ValueError, match="planar"):
+        true_peak_dbtp(np.zeros(64, dtype=np.float32), SR)
+
+
+# ---------------------------------------------------------------------------
+# The S0 stage end to end — ARCHITECTURE.md Section 1.3, step 6
+# ---------------------------------------------------------------------------
+
+
+def test_a_wav_produces_a_populated_bundle(tmp_path: Path, ctx: StageContext) -> None:
+    path = write_wav(tmp_path / "song.wav", stereo_signal(1.5))
+    bundle = decode.decode(path, ctx)
+
+    assert bundle.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert bundle.filename == "song.wav"
+    assert bundle.source_format == "wav"
+    assert bundle.source_sample_rate == SR
+    assert bundle.channels == 2
+    assert bundle.duration_s == pytest.approx(1.5, abs=1e-3)
+    assert bundle.trim_samples == 0
+    assert bundle.warnings == []
+
+
+def test_the_three_normative_variants_are_written(tmp_path: Path, ctx: StageContext) -> None:
+    """Section 1.3 step 4: resampling happens once, into exactly these variants."""
+    bundle = decode.decode(write_wav(tmp_path / "song.wav", stereo_signal(1.5)), ctx)
+
+    for name, (rate, channels) in PCM_VARIANTS.items():
+        variant = bundle.variants[name]
+        assert variant.sample_rate == rate
+        assert variant.channels == channels
+        assert variant.path.is_file()
+        pcm = variant.load()
+        assert pcm.shape[0] == channels
+        assert pcm.shape[1] == pytest.approx(rate * 1.5, rel=0.01)
+
+
+def test_the_display_copy_carries_no_loudness_gain(tmp_path: Path, ctx: StageContext) -> None:
+    """Section 1.3 step 5 forbids gaining the copy used for waveform display."""
+    bundle = decode.decode(write_wav(tmp_path / "quiet.wav", stereo_signal(1.5) * 0.05), ctx)
+
+    analysis = bundle.variants["pcm_44k_stereo"].load()
+    display = bundle.variants[decode.DISPLAY_VARIANT].load()
+
+    assert bundle.gain_db != 0.0
+    assert display.shape == analysis.shape
+    np.testing.assert_allclose(
+        np.asarray(analysis), np.asarray(display) * dbfs_to_amplitude(bundle.gain_db), atol=1e-6
+    )
+
+
+def test_the_analysis_variants_are_normalised(tmp_path: Path, ctx: StageContext) -> None:
+    bundle = decode.decode(write_wav(tmp_path / "quiet.wav", stereo_signal(3.0) * 0.05), ctx)
+    measured = integrated_lufs(np.asarray(bundle.variants["pcm_44k_stereo"].load()), 44100)
+    assert measured == pytest.approx(TARGET_LUFS, abs=0.5)
+
+
+def test_a_mono_source_fills_the_stereo_variant(tmp_path: Path, ctx: StageContext) -> None:
+    bundle = decode.decode(write_wav(tmp_path / "mono.wav", sine(1.5)), ctx)
+    assert bundle.channels == 1
+    stereo_variant = bundle.variants["pcm_44k_stereo"].load()
+    assert stereo_variant.shape[0] == 2
+    np.testing.assert_array_equal(stereo_variant[0], stereo_variant[1])
+
+
+def test_more_than_two_channels_are_downmixed_with_a_warning(
+    tmp_path: Path, ctx: StageContext
+) -> None:
+    """Section 1.3 step 2: >2 channels downmix with equal weights and W_INGEST_DOWNMIX."""
+    six = np.repeat(sine(1.5), 6, axis=0).astype(np.float32)
+    bundle = decode.decode(write_wav(tmp_path / "surround.wav", six), ctx)
+
+    assert bundle.channels == limits.MAX_CHANNELS
+    assert [w.code for w in bundle.warnings] == [WarningCode.W_INGEST_DOWNMIX]
+    assert [w.code for w in ctx.warnings] == [WarningCode.W_INGEST_DOWNMIX]
+
+
+def test_two_channels_are_not_downmixed(tmp_path: Path, ctx: StageContext) -> None:
+    bundle = decode.decode(write_wav(tmp_path / "song.wav", stereo_signal(1.5)), ctx)
+    assert bundle.warnings == []
+
+
+def test_leading_silence_is_recorded_but_not_trimmed(tmp_path: Path, ctx: StageContext) -> None:
+    padded = np.concatenate([np.zeros((1, SR), dtype=np.float32), sine(1.5)], axis=1)
+    bundle = decode.decode(write_wav(tmp_path / "padded.wav", padded), ctx)
+
+    assert bundle.leading_silence_s == pytest.approx(1.0, abs=0.01)
+    assert bundle.duration_s == pytest.approx(2.5, abs=1e-3)
+    assert bundle.variants["pcm_44k_stereo"].load().shape[1] == pytest.approx(44100 * 2.5, rel=0.01)
+
+
+def test_a_file_over_the_size_limit_is_rejected(
+    tmp_path: Path, ctx: StageContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = write_wav(tmp_path / "song.wav", stereo_signal(1.5))
+    monkeypatch.setattr(decode, "MAX_FILE_SIZE_BYTES", 1024)
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.decode(path, ctx)
+    assert excinfo.value.code is ErrorCode.E_INGEST_LIMIT
+    assert excinfo.value.detail["limit"] == 1024
+
+
+def test_audio_shorter_than_the_minimum_is_rejected(tmp_path: Path, ctx: StageContext) -> None:
+    path = write_wav(tmp_path / "blip.wav", sine(0.5))
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.decode(path, ctx)
+    assert excinfo.value.code is ErrorCode.E_INGEST_LIMIT
+    assert excinfo.value.detail["duration_s"] == pytest.approx(0.5, abs=1e-3)
+
+
+def test_audio_longer_than_the_maximum_is_rejected(
+    tmp_path: Path, ctx: StageContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = write_wav(tmp_path / "song.wav", sine(2.0))
+    monkeypatch.setattr(decode, "MAX_DURATION_S", 1.0)
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.decode(path, ctx)
+    assert excinfo.value.code is ErrorCode.E_INGEST_LIMIT
+
+
+def test_a_non_audio_file_is_rejected_before_decoding(tmp_path: Path, ctx: StageContext) -> None:
+    path = tmp_path / "notes.wav"
+    path.write_bytes(b"this is not audio" * 100)
+    with pytest.raises(AudioSheetError) as excinfo:
+        decode.decode(path, ctx)
+    assert excinfo.value.code is ErrorCode.E_INGEST_FORMAT
+
+
+def test_cancellation_is_honoured(tmp_path: Path, ctx: StageContext) -> None:
+    path = write_wav(tmp_path / "song.wav", stereo_signal(1.5))
+    ctx.cancel()
+    with pytest.raises(StageCancelledError):
+        decode.decode(path, ctx)
+
+
+def test_ingestion_is_deterministic(tmp_path: Path) -> None:
+    """INV-2: two runs write byte-identical variants and the same fingerprint."""
+    path = write_wav(tmp_path / "song.wav", stereo_signal(1.5))
+    first = decode.decode(path, StageContext("a", StageCache(tmp_path / "cache-a")))
+    second = decode.decode(path, StageContext("b", StageCache(tmp_path / "cache-b")))
+
+    assert first.content_hash() == second.content_hash()
+    for name in first.variants:
+        assert first.variants[name].path.read_bytes() == second.variants[name].path.read_bytes()
+
+
+# ---------------------------------------------------------------------------
+# MP3 ingestion through ffmpeg
+# ---------------------------------------------------------------------------
+
+
+def test_an_mp3_is_decoded_through_ffmpeg(
+    tmp_path: Path, ctx: StageContext, fake_ffmpeg: Path
+) -> None:
+    path = write_mp3(tmp_path / "song.mp3", stereo_signal(1.5))
+    bundle = decode.decode(path, ctx)
+
+    assert bundle.source_format == "mp3"
+    assert bundle.source_sample_rate == SR
+    assert bundle.duration_s == pytest.approx(1.5, abs=0.1)
+    assert bundle.variants["pcm_44k_stereo"].path.is_file()
+
+
+def test_the_encoder_delay_is_recorded_for_provenance(
+    tmp_path: Path, ctx: StageContext, fake_ffmpeg: Path
+) -> None:
+    """The trim itself is ffmpeg's; trim_samples records what the encoder prepended."""
+    path = write_mp3(tmp_path / "song.mp3", stereo_signal(1.5))
+    assert decode.mp3_trim_samples(path) == 576
+    assert decode.decode(path, ctx).trim_samples == 576
+
+
+def test_a_real_lame_header_matches_the_parser(tmp_path: Path) -> None:
+    """The 576-sample delay is LAME's own, read out of its own encoder output."""
+    path = write_mp3(tmp_path / "song.mp3", sine(1.5))
+    head = path.read_bytes()[:8192]
+    delay, padding = decode.lame_delay_and_padding(head) or (None, None)
+    assert delay == 576
+    assert padding is not None and padding > 0
+
+
+def test_an_mp3_without_a_lame_header_uses_the_fallback(tmp_path: Path) -> None:
+    """Section 1.3: absent a header, trim a fixed 1105 samples at 44.1 kHz."""
+    path = tmp_path / "headerless.mp3"
+    path.write_bytes(mpeg_header() + b"\x00" * 4096)
+    assert decode.mp3_trim_samples(path) == MP3_FALLBACK_TRIM_SAMPLES
+
+
+def test_the_lame_frame_is_found_behind_a_large_id3_tag(tmp_path: Path) -> None:
+    """Album art routinely pushes the Xing frame past a short read."""
+    path = tmp_path / "tagged.mp3"
+    path.write_bytes(xing_frame(576, 1800, id3_size=60_000))
+    assert decode.mp3_trim_samples(path) == 576

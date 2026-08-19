@@ -7,16 +7,34 @@ to the audio the user hears.
 
 from __future__ import annotations
 
+import hashlib
+import os
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, cast
 
 import numpy as np
 import numpy.typing as npt
+import soundfile
 
-from audiosheet.ingest.sniff import SourceFormat
+from audiosheet.config.constants import (
+    MP3_FALLBACK_TRIM_SAMPLES,
+    PCM_VARIANTS,
+)
+from audiosheet.config.limits import (
+    MAX_CHANNELS,
+    MAX_DURATION_S,
+    MAX_FILE_SIZE_BYTES,
+    MIN_DURATION_S,
+)
+from audiosheet.config.paths import repo_root
+from audiosheet.ingest.loudness import detect_edge_silence, normalise
+from audiosheet.ingest.resample import resample, to_channels
+from audiosheet.ingest.sniff import SourceFormat, sniff_file
 from audiosheet.pipeline.cache import blake3_hex
-from audiosheet.pipeline.errors import AudioSheetError, ErrorCode
+from audiosheet.pipeline.errors import AudioSheetError, ErrorCode, WarningCode
 from audiosheet.pipeline.stage import StageContext, StageWarning
 
 #: Planar float32 PCM, shaped (channels, samples).
@@ -61,6 +79,39 @@ LAME_DELAY_OFFSET: Final[int] = 21
 
 #: Widest delay or padding the 12-bit LAME fields can express.
 LAME_MAX_DELAY: Final[int] = 0xFFF
+
+#: Stage name under which PCM variants are cached.
+STAGE_NAME: Final[str] = "S0.ingest"
+
+#: Environment variable that overrides the vendored ffmpeg binary.
+FFMPEG_ENV: Final[str] = "AUDIOSHEET_FFMPEG"
+
+#: Vendored ffmpeg location, relative to the repository root.
+FFMPEG_VENDOR_PATH: Final[tuple[str, ...]] = ("vendor", "ffmpeg", "ffmpeg")
+
+#: Flags every ffmpeg invocation carries (Section 1.3, step 3). Input options
+#: precede ``-i``; stream selection and encoding follow it.
+FFMPEG_INPUT_FLAGS: Final[tuple[str, ...]] = ("-nostdin", "-hide_banner")
+FFMPEG_OUTPUT_FLAGS: Final[tuple[str, ...]] = (
+    "-vn",
+    "-map",
+    "0:a:0",
+    "-c:a",
+    "pcm_f32le",
+    "-f",
+    "wav",
+)
+
+#: Un-normalised 44.1 kHz stereo copy. Section 1.3 step 5 forbids applying the
+#: loudness gain to the waveform display, and the normative variant table gives
+#: waveform display and Demucs the same row -- so the display gets its own copy.
+DISPLAY_VARIANT: Final[str] = "pcm_44k_stereo_display"
+
+#: Bytes read past a leading ID3v2 tag when looking for the LAME/Xing frame.
+MP3_HEAD_BYTES: Final[int] = 4096
+
+#: Characters of ffmpeg stderr retained in an E_INGEST_DECODE diagnostic.
+FFMPEG_STDERR_CHARS: Final[int] = 2000
 
 
 @dataclass(frozen=True)
@@ -149,6 +200,214 @@ class AudioBundle:
         )
 
 
+def sha256_file(path: Path) -> str:
+    """Return the SHA-256 digest of a file, read in chunks.
+
+    Args:
+        path: The file to digest.
+
+    Returns:
+        The digest as lowercase hex.
+
+    Raises:
+        OSError: When the file cannot be read.
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def ffmpeg_binary() -> Path:
+    """Resolve the vendored ffmpeg binary.
+
+    ``AUDIOSHEET_FFMPEG`` overrides the vendored location. The system ``PATH``
+    is deliberately not consulted: an arbitrary build would decode differently
+    from the one the gates were measured against (INV-2).
+
+    Returns:
+        Path to an executable ffmpeg.
+
+    Raises:
+        AudioSheetError: ``E_INGEST_DECODE`` when no executable is found.
+    """
+    override = os.environ.get(FFMPEG_ENV)
+    candidate = (
+        Path(override).expanduser() if override else repo_root().joinpath(*FFMPEG_VENDOR_PATH)
+    )
+    if not candidate.is_file() or not os.access(candidate, os.X_OK):
+        raise AudioSheetError(
+            ErrorCode.E_INGEST_DECODE,
+            f"ffmpeg is not available at {candidate}",
+            detail={"path": str(candidate), "override": FFMPEG_ENV},
+        )
+    return candidate
+
+
+def ffmpeg_command(binary: Path, source: Path, destination: Path) -> list[str]:
+    """Build the ffmpeg invocation that decodes ``source`` to a float32 WAV.
+
+    ffmpeg applies the LAME gapless delay and padding itself, so the decoded
+    audio is already aligned to what the listener hears; ``trim_samples`` records
+    the same figure for provenance rather than driving a second trim.
+
+    Args:
+        binary: The ffmpeg executable.
+        source: The input audio file.
+        destination: Where to write the decoded WAV.
+
+    Returns:
+        The argument vector.
+    """
+    return [
+        str(binary),
+        *FFMPEG_INPUT_FLAGS,
+        "-i",
+        str(source),
+        *FFMPEG_OUTPUT_FLAGS,
+        "-y",
+        str(destination),
+    ]
+
+
+def read_pcm(path: Path) -> tuple[Pcm, int]:
+    """Read a sound file into planar float32 PCM via libsndfile.
+
+    Args:
+        path: A file libsndfile can open.
+
+    Returns:
+        Planar float32 PCM shaped ``(channels, samples)``, and the sample rate.
+
+    Raises:
+        AudioSheetError: ``E_INGEST_DECODE`` when libsndfile cannot read it.
+    """
+    try:
+        samples, sample_rate = soundfile.read(path, dtype="float32", always_2d=True)
+    except soundfile.LibsndfileError as exc:
+        raise AudioSheetError(
+            ErrorCode.E_INGEST_DECODE,
+            f"libsndfile could not decode {path.name}",
+            detail={"path": path.name, "error": str(exc)},
+        ) from exc
+    return np.ascontiguousarray(samples.T, dtype=np.float32), int(sample_rate)
+
+
+def ffmpeg_decode(path: Path) -> tuple[Pcm, int]:
+    """Decode a file through ffmpeg into planar float32 PCM.
+
+    ffmpeg writes a float32 WAV into a temporary directory, which libsndfile
+    then reads: a seekable file carries the sample rate and channel count that a
+    raw pipe would not.
+
+    Args:
+        path: The input audio file.
+
+    Returns:
+        Planar float32 PCM shaped ``(channels, samples)``, and the sample rate.
+
+    Raises:
+        AudioSheetError: ``E_INGEST_DECODE`` when ffmpeg is missing or fails.
+    """
+    binary = ffmpeg_binary()
+    with tempfile.TemporaryDirectory(prefix="audiosheet-ingest-") as workspace:
+        destination = Path(workspace) / "decoded.wav"
+        completed = subprocess.run(  # fixed argv, never a shell
+            ffmpeg_command(binary, path, destination),
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0 or not destination.is_file():
+            stderr = completed.stderr.decode("utf-8", "replace")[-FFMPEG_STDERR_CHARS:]
+            raise AudioSheetError(
+                ErrorCode.E_INGEST_DECODE,
+                f"ffmpeg failed to decode {path.name}",
+                detail={
+                    "path": path.name,
+                    "returncode": completed.returncode,
+                    "stderr": stderr,
+                },
+            )
+        return read_pcm(destination)
+
+
+def mp3_trim_samples(path: Path) -> int:
+    """Return the encoder delay recorded for an MP3, for provenance.
+
+    ffmpeg performs the actual trim. This figure lands in
+    ``AudioBundle.trim_samples`` so the provenance shows how many samples the
+    encoder prepended, falling back to ``MP3_FALLBACK_TRIM_SAMPLES`` when the
+    file carries no LAME/Xing header.
+
+    Args:
+        path: The MP3 file.
+
+    Returns:
+        The encoder delay in samples.
+
+    Raises:
+        OSError: When the file cannot be read.
+    """
+    with path.open("rb") as handle:
+        prefix = handle.read(ID3_HEADER_BYTES)
+        head = prefix + handle.read(id3v2_length(prefix) + MP3_HEAD_BYTES)
+    delay = lame_encoder_delay(head)
+    return MP3_FALLBACK_TRIM_SAMPLES if delay is None else delay
+
+
+def _variant_path(ctx: StageContext, sha256: str, name: str) -> Path:
+    """Return the cache path backing one PCM variant.
+
+    Args:
+        ctx: Ambient stage services.
+        sha256: Digest of the original file bytes.
+        name: Variant name.
+
+    Returns:
+        The ``.npy`` path inside the stage cache.
+    """
+    fingerprint = blake3_hex(sha256.encode("utf-8"), name.encode("utf-8"))
+    return ctx.cache.blob_path(STAGE_NAME, fingerprint, ".npy")
+
+
+def write_variant(
+    ctx: StageContext,
+    sha256: str,
+    name: str,
+    pcm: Pcm,
+    source_rate: int,
+    target_rate: int,
+    target_channels: int,
+) -> PcmVariant:
+    """Conform, resample and persist one PCM variant.
+
+    Channels are folded down before resampling and duplicated up afterwards, so
+    the resampler never runs over redundant copies of the same signal.
+
+    Args:
+        ctx: Ambient stage services.
+        sha256: Digest of the original file bytes.
+        name: Variant name.
+        pcm: Planar float32 PCM at ``source_rate``.
+        source_rate: Sample rate of ``pcm``.
+        target_rate: Sample rate of the variant.
+        target_channels: Channel count of the variant.
+
+    Returns:
+        The persisted variant.
+    """
+    work = pcm
+    if target_channels < work.shape[0]:
+        work = to_channels(work, target_channels)
+    work = resample(work, source_rate, target_rate)
+    work = to_channels(work, target_channels)
+
+    path = _variant_path(ctx, sha256, name)
+    np.save(path, work)
+    return PcmVariant(name=name, sample_rate=target_rate, channels=target_channels, path=path)
+
+
 def decode(path: Path, ctx: StageContext) -> AudioBundle:
     """Decode, validate, resample and loudness-normalise an input file.
 
@@ -162,10 +421,71 @@ def decode(path: Path, ctx: StageContext) -> AudioBundle:
     Raises:
         AudioSheetError: ``E_INGEST_FORMAT``, ``E_INGEST_LIMIT`` or
             ``E_INGEST_DECODE`` per Section 1.3.
-        NotImplementedError: Phase 1 — blocked on the libsndfile/soxr/pyloudnorm
-            dependencies and the vendored ffmpeg binary.
+        OSError: When the input file cannot be read.
     """
-    raise NotImplementedError("S0 decoding lands in Phase 1")
+    ctx.check_cancelled(STAGE_NAME)
+    size_bytes = path.stat().st_size
+    if size_bytes > MAX_FILE_SIZE_BYTES:
+        raise AudioSheetError(
+            ErrorCode.E_INGEST_LIMIT,
+            f"{path.name} is {size_bytes} bytes; the limit is {MAX_FILE_SIZE_BYTES}",
+            detail={"bytes": size_bytes, "limit": MAX_FILE_SIZE_BYTES},
+        )
+
+    source_format = sniff_file(path)
+    sha256 = sha256_file(path)
+
+    ctx.report_progress(STAGE_NAME, 0.2, "decoding")
+    pcm, source_rate = read_pcm(path) if source_format == "wav" else ffmpeg_decode(path)
+    ctx.check_cancelled(STAGE_NAME)
+
+    duration_s = pcm.shape[1] / source_rate
+    if not MIN_DURATION_S <= duration_s <= MAX_DURATION_S:
+        raise AudioSheetError(
+            ErrorCode.E_INGEST_LIMIT,
+            f"{path.name} is {duration_s:.3f} s; the accepted range is "
+            f"{MIN_DURATION_S}-{MAX_DURATION_S} s",
+            detail={"duration_s": duration_s, "min_s": MIN_DURATION_S, "max_s": MAX_DURATION_S},
+        )
+
+    warnings: list[StageWarning] = []
+    source_channels = pcm.shape[0]
+    if source_channels > MAX_CHANNELS:
+        pcm = to_channels(pcm, MAX_CHANNELS)
+        message = f"downmixed {source_channels} channels to {MAX_CHANNELS} with equal weights"
+        warnings.append(StageWarning(code=WarningCode.W_INGEST_DOWNMIX, message=message))
+        ctx.warn(WarningCode.W_INGEST_DOWNMIX, message)
+
+    trim_samples = mp3_trim_samples(path) if source_format == "mp3" else 0
+
+    ctx.report_progress(STAGE_NAME, 0.5, "normalising")
+    normalised, gain_db = normalise(pcm, source_rate)
+    leading_silence_s, _ = detect_edge_silence(normalised, source_rate)
+
+    ctx.report_progress(STAGE_NAME, 0.7, "resampling")
+    variants: dict[str, PcmVariant] = {}
+    for name, (rate, channels) in PCM_VARIANTS.items():
+        ctx.check_cancelled(STAGE_NAME)
+        variants[name] = write_variant(ctx, sha256, name, normalised, source_rate, rate, channels)
+
+    display_rate, display_channels = PCM_VARIANTS["pcm_44k_stereo"]
+    variants[DISPLAY_VARIANT] = write_variant(
+        ctx, sha256, DISPLAY_VARIANT, pcm, source_rate, display_rate, display_channels
+    )
+
+    return AudioBundle(
+        sha256=sha256,
+        filename=path.name,
+        source_format=source_format,
+        duration_s=duration_s,
+        source_sample_rate=source_rate,
+        channels=pcm.shape[0],
+        variants=variants,
+        gain_db=gain_db,
+        trim_samples=trim_samples,
+        leading_silence_s=leading_silence_s,
+        warnings=warnings,
+    )
 
 
 def id3v2_length(head: bytes) -> int:

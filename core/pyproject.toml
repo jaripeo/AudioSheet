@@ -101,8 +101,10 @@ files = ["audiosheet", "tests"]
 # opinion of code we do not hand-write.
 exclude = "audiosheet/schema/.*"
 
+# Third-party audio libraries ship no type information: soundfile and
+# pyloudnorm are untyped, and soxr's wheel carries no py.typed marker.
 [[tool.mypy.overrides]]
-module = ["blake3.*", "ulid.*"]
+module = ["blake3.*", "ulid.*", "soundfile.*", "soxr.*", "pyloudnorm.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
