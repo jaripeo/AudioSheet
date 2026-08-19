@@ -7,7 +7,22 @@ used for waveform display.
 
 from __future__ import annotations
 
+import numpy as np
+
+from audiosheet.config.constants import SILENCE_FLOOR_DBFS, SILENCE_MIN_SPAN_S
 from audiosheet.ingest.decode import Pcm
+
+
+def dbfs_to_amplitude(dbfs: float) -> float:
+    """Convert a dBFS level to a linear amplitude.
+
+    Args:
+        dbfs: Level in dBFS, where ``0.0`` is full scale.
+
+    Returns:
+        The equivalent linear amplitude.
+    """
+    return float(10.0 ** (dbfs / 20.0))
 
 
 def integrated_lufs(pcm: Pcm, sample_rate: int) -> float:
@@ -21,7 +36,7 @@ def integrated_lufs(pcm: Pcm, sample_rate: int) -> float:
         Integrated loudness in LUFS.
 
     Raises:
-        NotImplementedError: Phase 1.
+        NotImplementedError: Phase 1 — blocked on the ``pyloudnorm`` dependency.
     """
     raise NotImplementedError("loudness measurement lands in Phase 1")
 
@@ -37,7 +52,7 @@ def normalise(pcm: Pcm, sample_rate: int) -> tuple[Pcm, float]:
         The normalised PCM and the gain applied, in dB.
 
     Raises:
-        NotImplementedError: Phase 1.
+        NotImplementedError: Phase 1 — blocked on the ``pyloudnorm`` dependency.
     """
     raise NotImplementedError("loudness normalisation lands in Phase 1")
 
@@ -46,6 +61,10 @@ def detect_edge_silence(pcm: Pcm, sample_rate: int) -> tuple[float, float]:
     """Measure leading and trailing silence without trimming it.
 
     Trimming would desynchronise user playback, so the spans are reported only.
+    A span counts as silence when every channel stays below
+    ``SILENCE_FLOOR_DBFS`` for longer than ``SILENCE_MIN_SPAN_S``; shorter runs
+    report ``0.0``. An entirely silent signal is reported as leading silence, so
+    that the two spans never describe the same samples twice.
 
     Args:
         pcm: Planar float32 PCM.
@@ -55,6 +74,38 @@ def detect_edge_silence(pcm: Pcm, sample_rate: int) -> tuple[float, float]:
         Leading and trailing silence, in seconds.
 
     Raises:
-        NotImplementedError: Phase 1.
+        ValueError: When ``pcm`` is not planar or ``sample_rate`` is not positive.
     """
-    raise NotImplementedError("silence detection lands in Phase 1")
+    if pcm.ndim != 2:
+        raise ValueError(f"expected planar PCM shaped (channels, samples), got {pcm.shape}")
+    if sample_rate <= 0:
+        raise ValueError(f"sample rate must be positive, got {sample_rate}")
+
+    samples = pcm.shape[1]
+    if samples == 0:
+        return 0.0, 0.0
+
+    floor = dbfs_to_amplitude(SILENCE_FLOOR_DBFS)
+    sounding = np.flatnonzero(np.abs(pcm).max(axis=0) >= floor)
+
+    if sounding.size == 0:
+        leading, trailing = samples, 0
+    else:
+        leading = int(sounding[0])
+        trailing = samples - 1 - int(sounding[-1])
+
+    return _reportable(leading, sample_rate), _reportable(trailing, sample_rate)
+
+
+def _reportable(span_samples: int, sample_rate: int) -> float:
+    """Return a silence span in seconds, or ``0.0`` when it is too short to report.
+
+    Args:
+        span_samples: Length of the sub-floor run, in samples.
+        sample_rate: Sample rate in Hz.
+
+    Returns:
+        The span in seconds when it exceeds ``SILENCE_MIN_SPAN_S``, else ``0.0``.
+    """
+    seconds = span_samples / sample_rate
+    return seconds if seconds > SILENCE_MIN_SPAN_S else 0.0
