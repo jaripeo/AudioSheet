@@ -148,10 +148,11 @@ def test_every_stub_names_the_phase_that_implements_it() -> None:
 
 def test_the_stub_scan_actually_finds_stubs() -> None:
     """Guard against the scan silently matching nothing and passing vacuously."""
-    source = Path(inspect.getsourcefile(importlib.import_module("audiosheet.ingest.sniff")) or "")
+    module = importlib.import_module("audiosheet.symbolic.quantize")
+    source = Path(inspect.getsourcefile(module) or "")
     messages = _not_implemented_messages(source.read_text(encoding="utf-8"))
     assert len(messages) == 2
-    assert all("Phase 1" in message for _, message in messages)
+    assert all("Phase 6" in message for _, message in messages)
 
 
 def test_no_bare_todo_or_fixme_markers() -> None:
@@ -191,7 +192,6 @@ def test_every_public_function_is_annotated() -> None:
 @pytest.mark.parametrize(
     ("module_name", "attribute"),
     [
-        ("audiosheet.ingest.sniff", "sniff_bytes"),
         ("audiosheet.ingest.resample", "resample"),
         ("audiosheet.ingest.loudness", "integrated_lufs"),
         ("audiosheet.analysis.beats", "track_beats"),
