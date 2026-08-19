@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Solution file: builds every package. apps/* enter scope with their frameworks -
+  // apps/web in Phase 2, apps/desktop in Phase 8 (ARCHITECTURE.md Section 5.3).
+  // Their sources exist so the Section 5.1 tree is complete, and each carries its
+  // own tsconfig for when its phase arrives.
+  "files": [],
+  "references": [
+    { "path": "packages/schema" },
+    { "path": "packages/engine" },
+    { "path": "packages/render-core" },
+    { "path": "packages/render-sheet" },
+    { "path": "packages/render-tab" },
+    { "path": "packages/playback" },
+    { "path": "packages/ipc" }
+  ]
+}

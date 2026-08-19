@@ -1,0 +1,2258 @@
+{
+  "$defs": {
+    "Accidental": {
+      "enum": [
+        "natural",
+        "sharp",
+        "flat",
+        "double-sharp",
+        "double-flat",
+        "none"
+      ]
+    },
+    "Alter": {
+      "enum": [
+        -2,
+        -1,
+        0,
+        1,
+        2
+      ]
+    },
+    "Articulation": {
+      "enum": [
+        "staccato",
+        "accent",
+        "tenuto",
+        "marcato",
+        "legato",
+        "vibrato",
+        "harmonic",
+        "palm_mute",
+        "ghost",
+        "dead_note"
+      ]
+    },
+    "BarreSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "fret": {
+          "maximum": 24,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "from_string": {
+          "maximum": 12,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "to_string": {
+          "maximum": 12,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fret",
+        "from_string",
+        "to_string"
+      ],
+      "type": "object"
+    },
+    "Beat": {
+      "additionalProperties": false,
+      "properties": {
+        "beat_in_bar": {
+          "description": "1-based.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "is_downbeat": {
+          "type": "boolean"
+        },
+        "tick": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "time_s": {
+          "$ref": "#/$defs/Seconds"
+        }
+      },
+      "required": [
+        "tick",
+        "time_s",
+        "beat_in_bar",
+        "is_downbeat",
+        "confidence"
+      ],
+      "type": "object"
+    },
+    "ChordEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "bass_pc": {
+          "anyOf": [
+            {
+              "maximum": 11,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Slash chord; null if root position."
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "extensions": {
+          "description": "Scale degrees present, e.g. [9, 11, 13].",
+          "items": {
+            "maximum": 13,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "description": "Rendered text, e.g. \"Cmaj7/E\".",
+          "type": "string"
+        },
+        "omissions": {
+          "description": "Degrees deliberately dropped by the difficulty engine.",
+          "items": {
+            "maximum": 13,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "quality": {
+          "$ref": "#/$defs/ChordQuality"
+        },
+        "root_alter": {
+          "$ref": "#/$defs/Alter"
+        },
+        "root_pc": {
+          "description": "0..11, C = 0.",
+          "maximum": 11,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "root_step": {
+          "$ref": "#/$defs/Step"
+        },
+        "source": {
+          "$ref": "#/$defs/ChordSource"
+        },
+        "tick_off": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "tick_on": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "time_on_s": {
+          "$ref": "#/$defs/Seconds"
+        },
+        "voicing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Voicing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Populated for guitar parts."
+        }
+      },
+      "required": [
+        "id",
+        "tick_on",
+        "tick_off",
+        "time_on_s",
+        "root_pc",
+        "root_step",
+        "root_alter",
+        "quality",
+        "bass_pc",
+        "extensions",
+        "omissions",
+        "label",
+        "confidence",
+        "source",
+        "voicing"
+      ],
+      "type": "object"
+    },
+    "ChordQuality": {
+      "enum": [
+        "maj",
+        "min",
+        "dim",
+        "aug",
+        "sus2",
+        "sus4",
+        "maj6",
+        "min6",
+        "dom7",
+        "maj7",
+        "min7",
+        "min7b5",
+        "dim7",
+        "aug7",
+        "9",
+        "maj9",
+        "min9",
+        "11",
+        "13",
+        "5",
+        "none"
+      ]
+    },
+    "ChordSource": {
+      "enum": [
+        "audio",
+        "symbolic",
+        "fused"
+      ]
+    },
+    "Clef": {
+      "additionalProperties": false,
+      "properties": {
+        "line": {
+          "description": "Staff line the clef sits on.",
+          "maximum": 5,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "octave_change": {
+          "description": "Octave transposition drawn with the clef (guitar treble = -1).",
+          "maximum": 2,
+          "minimum": -2,
+          "type": "integer"
+        },
+        "sign": {
+          "$ref": "#/$defs/ClefSign"
+        },
+        "staff": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "staff",
+        "sign",
+        "line",
+        "octave_change"
+      ],
+      "type": "object"
+    },
+    "ClefSign": {
+      "enum": [
+        "G",
+        "F",
+        "C",
+        "percussion",
+        "TAB"
+      ]
+    },
+    "Device": {
+      "enum": [
+        "cpu",
+        "cuda",
+        "mps",
+        "wasm"
+      ]
+    },
+    "Diagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "description": "An E_* or W_* code from the registry in Appendix 5.4.",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "tick": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ticks"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "tick"
+      ],
+      "type": "object"
+    },
+    "Diagnostics": {
+      "additionalProperties": false,
+      "properties": {
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          },
+          "type": "array"
+        },
+        "stats": {
+          "$ref": "#/$defs/DocumentStats"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "errors",
+        "warnings",
+        "stats"
+      ],
+      "type": "object"
+    },
+    "DifficultyFlags": {
+      "additionalProperties": false,
+      "properties": {
+        "arpeggio_collapsed": {
+          "type": "boolean"
+        },
+        "confidence_low": {
+          "description": "confidence < 0.35; the UI highlights these.",
+          "type": "boolean"
+        },
+        "drop_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DropReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dropped": {
+          "type": "boolean"
+        },
+        "level": {
+          "$ref": "#/$defs/DifficultyLevel"
+        },
+        "merged_count": {
+          "description": "How many source notes collapsed into this one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "octave_shifted": {
+          "description": "Semitones; a multiple of 12.",
+          "type": "integer"
+        },
+        "ornament_stripped": {
+          "type": "boolean"
+        },
+        "quantize_shift_ticks": {
+          "description": "Signed magnitude of the applied snap.",
+          "type": "integer"
+        },
+        "quantized": {
+          "type": "boolean"
+        },
+        "simplified_from_chord": {
+          "type": "boolean"
+        },
+        "swing_flattened": {
+          "type": "boolean"
+        },
+        "synthetic": {
+          "description": "Engine-inserted, not audio-derived.",
+          "type": "boolean"
+        },
+        "tab_relaxed": {
+          "description": "The guitar fret window had to be widened to place this note.",
+          "type": "boolean"
+        },
+        "transposed": {
+          "description": "Semitones from global key simplification.",
+          "type": "integer"
+        },
+        "tuplet_removed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "level",
+        "dropped",
+        "drop_reason",
+        "quantized",
+        "quantize_shift_ticks",
+        "merged_count",
+        "simplified_from_chord",
+        "arpeggio_collapsed",
+        "octave_shifted",
+        "transposed",
+        "swing_flattened",
+        "ornament_stripped",
+        "tuplet_removed",
+        "tab_relaxed",
+        "synthetic",
+        "confidence_low"
+      ],
+      "type": "object"
+    },
+    "DifficultyLevel": {
+      "enum": [
+        "simple",
+        "medium",
+        "complex"
+      ]
+    },
+    "DifficultyProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_transposition": {
+          "type": "boolean"
+        },
+        "allow_tuplets": {
+          "description": "Permitted tuplet actual-counts, e.g. [3, 5, 6, 7].",
+          "items": {
+            "minimum": 2,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "chord_max_notes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "chord_tone_priority": {
+          "description": "Scale degrees, most-important first, e.g. [1, 3, 7, 5].",
+          "items": {
+            "maximum": 13,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "drum_kit_subset": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "grid_divisions": {
+          "description": "Subdivisions per quarter note.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "guitar_allow_barre": {
+          "type": "boolean"
+        },
+        "guitar_allow_open_strings": {
+          "description": "Section 2.0 lists this parameter; true at every level, preferred at Simple.",
+          "type": "boolean"
+        },
+        "guitar_fret_window": {
+          "description": "Inclusive [lo, hi] fret bounds.",
+          "items": false,
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "maximum": 24,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "maximum": 24,
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "guitar_max_span": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "guitar_max_strings_per_chord": {
+          "maximum": 12,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "guitar_techniques": {
+          "items": {
+            "$ref": "#/$defs/TabTechnique"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "\"simple\" | \"medium\" | \"complex\" | a custom ULID.",
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "level": {
+          "$ref": "#/$defs/DifficultyLevel"
+        },
+        "max_accidentals_in_key": {
+          "anyOf": [
+            {
+              "maximum": 7,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null = unrestricted."
+        },
+        "max_simultaneous_notes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_voices": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min_note_duration_ticks": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "note_budget_nps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Notes per second, per part; null means unrestricted."
+        },
+        "ornaments": {
+          "$ref": "#/$defs/OrnamentPolicy"
+        },
+        "parts_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null means every present part."
+        },
+        "pitch_range_semitones": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null = unrestricted."
+        },
+        "prefer_capo": {
+          "type": "boolean"
+        },
+        "quantize_weights": {
+          "$ref": "#/$defs/QuantizeWeights"
+        },
+        "salience_weights": {
+          "$ref": "#/$defs/SalienceWeights"
+        },
+        "show_chord_diagrams": {
+          "type": "boolean"
+        },
+        "show_dynamics": {
+          "description": "Whether dynamics are notated at all. The vocabulary is a function of `level`: Medium emits p/mf/f only, Complex adds the full range plus hairpins (Section 2.0), so no separate granularity field is needed.",
+          "type": "boolean"
+        },
+        "show_fingerings": {
+          "type": "boolean"
+        },
+        "swing_notation": {
+          "$ref": "#/$defs/SwingNotation"
+        },
+        "tab_weights": {
+          "$ref": "#/$defs/TabWeights"
+        },
+        "use_repeat_signs": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "level",
+        "label",
+        "grid_divisions",
+        "allow_tuplets",
+        "swing_notation",
+        "min_note_duration_ticks",
+        "quantize_weights",
+        "note_budget_nps",
+        "max_simultaneous_notes",
+        "max_voices",
+        "chord_max_notes",
+        "chord_tone_priority",
+        "salience_weights",
+        "pitch_range_semitones",
+        "max_accidentals_in_key",
+        "allow_transposition",
+        "prefer_capo",
+        "guitar_fret_window",
+        "guitar_max_span",
+        "guitar_max_strings_per_chord",
+        "guitar_allow_barre",
+        "guitar_allow_open_strings",
+        "guitar_techniques",
+        "tab_weights",
+        "parts_max",
+        "drum_kit_subset",
+        "ornaments",
+        "show_dynamics",
+        "show_fingerings",
+        "show_chord_diagrams",
+        "use_repeat_signs"
+      ],
+      "type": "object"
+    },
+    "DocumentStats": {
+      "additionalProperties": false,
+      "properties": {
+        "dropped_note_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mean_confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "mean_quantize_shift_ticks": {
+          "type": "number"
+        },
+        "raw_note_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rendered_note_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "transcription_frame_ms": {
+          "description": "Transcription time resolution; 11.61 ms for basic-pitch.",
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "raw_note_count",
+        "rendered_note_count",
+        "dropped_note_count",
+        "mean_quantize_shift_ticks",
+        "mean_confidence",
+        "transcription_frame_ms"
+      ],
+      "type": "object"
+    },
+    "Dots": {
+      "enum": [
+        0,
+        1,
+        2
+      ]
+    },
+    "DropReason": {
+      "enum": [
+        "density_budget",
+        "polyphony_cap",
+        "below_min_duration",
+        "voice_cap",
+        "unplayable",
+        "kit_subset",
+        "ornament"
+      ]
+    },
+    "DurationRational": {
+      "additionalProperties": false,
+      "properties": {
+        "denominator": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "numerator": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "Dynamic": {
+      "enum": [
+        "pp",
+        "p",
+        "mp",
+        "mf",
+        "f",
+        "ff"
+      ]
+    },
+    "Finger": {
+      "enum": [
+        1,
+        2,
+        3,
+        4,
+        "T",
+        "barre",
+        null
+      ]
+    },
+    "Instrument": {
+      "additionalProperties": false,
+      "properties": {
+        "fret_count": {
+          "anyOf": [
+            {
+              "maximum": 36,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "midi_channel": {
+          "description": "Drums MUST be channel 9 (0-indexed).",
+          "maximum": 15,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "midi_program": {
+          "description": "General MIDI program.",
+          "maximum": 127,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "string_count": {
+          "anyOf": [
+            {
+              "maximum": 12,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tuning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Tuning"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "midi_program",
+        "midi_channel",
+        "tuning",
+        "string_count",
+        "fret_count"
+      ],
+      "type": "object"
+    },
+    "KeyEstimate": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "fifths": {
+          "description": "MusicXML key signature.",
+          "maximum": 7,
+          "minimum": -7,
+          "type": "integer"
+        },
+        "mode": {
+          "$ref": "#/$defs/Mode"
+        },
+        "regions": {
+          "items": {
+            "$ref": "#/$defs/KeyRegion"
+          },
+          "type": "array"
+        },
+        "tonic_pc": {
+          "maximum": 11,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tonic_pc",
+        "mode",
+        "fifths",
+        "confidence",
+        "regions"
+      ],
+      "type": "object"
+    },
+    "KeyRegion": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "fifths": {
+          "description": "MusicXML key signature.",
+          "maximum": 7,
+          "minimum": -7,
+          "type": "integer"
+        },
+        "mode": {
+          "$ref": "#/$defs/Mode"
+        },
+        "tick_off": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "tick_on": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "tonic_pc": {
+          "maximum": 11,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tick_on",
+        "tick_off",
+        "tonic_pc",
+        "mode",
+        "fifths",
+        "confidence"
+      ],
+      "type": "object"
+    },
+    "Measure": {
+      "additionalProperties": false,
+      "properties": {
+        "implicit": {
+          "description": "Pickup / partial measure.",
+          "type": "boolean"
+        },
+        "index": {
+          "description": "0-based; a pickup measure is index 0 with implicit = true.",
+          "type": "integer"
+        },
+        "tick_end": {
+          "$ref": "#/$defs/Ticks",
+          "description": "Exclusive."
+        },
+        "tick_start": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "time_end_s": {
+          "$ref": "#/$defs/Seconds"
+        },
+        "time_signature_ref": {
+          "description": "Index into TimingGrid.time_signatures.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "time_start_s": {
+          "$ref": "#/$defs/Seconds"
+        }
+      },
+      "required": [
+        "index",
+        "tick_start",
+        "tick_end",
+        "time_start_s",
+        "time_end_s",
+        "time_signature_ref",
+        "implicit"
+      ],
+      "type": "object"
+    },
+    "Mode": {
+      "enum": [
+        "major",
+        "minor"
+      ]
+    },
+    "ModelRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "license": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "sha256",
+        "license"
+      ],
+      "type": "object"
+    },
+    "NotatedType": {
+      "enum": [
+        "whole",
+        "half",
+        "quarter",
+        "eighth",
+        "16th",
+        "32nd",
+        "64th"
+      ]
+    },
+    "Note": {
+      "additionalProperties": false,
+      "properties": {
+        "accidental_display": {
+          "$ref": "#/$defs/Accidental"
+        },
+        "alter": {
+          "$ref": "#/$defs/Alter"
+        },
+        "articulations": {
+          "items": {
+            "$ref": "#/$defs/Articulation"
+          },
+          "type": "array"
+        },
+        "bend_semitones": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "dots": {
+          "$ref": "#/$defs/Dots"
+        },
+        "duration_rational": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DurationRational"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Non-null only for tuplet durations that are not integral in ticks."
+        },
+        "dynamic": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Dynamic"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "$ref": "#/$defs/DifficultyFlags"
+        },
+        "id": {
+          "type": "string"
+        },
+        "is_chord_member": {
+          "description": "MusicXML <chord/>: shares an onset with the previous note.",
+          "type": "boolean"
+        },
+        "micro_cents": {
+          "maximum": 100,
+          "minimum": -100,
+          "type": "number"
+        },
+        "midi": {
+          "maximum": 127,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "notated_type": {
+          "$ref": "#/$defs/NotatedType"
+        },
+        "octave": {
+          "description": "Scientific pitch notation; middle C = C4.",
+          "maximum": 9,
+          "minimum": -1,
+          "type": "integer"
+        },
+        "origin_ids": {
+          "description": "RawNote ids (INV-3); empty only for engine-inserted material.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "part_id": {
+          "type": "string"
+        },
+        "render": {
+          "description": "false => retained for provenance but not drawn.",
+          "type": "boolean"
+        },
+        "salience": {
+          "description": "Musical importance, drives note reduction (Section 2.1.1).",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "slur": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SlurRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "staff": {
+          "description": "1-based.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "step": {
+          "$ref": "#/$defs/Step"
+        },
+        "tab": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TabPosition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "techniques": {
+          "items": {
+            "$ref": "#/$defs/TabTechnique"
+          },
+          "type": "array"
+        },
+        "tick_off": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "tick_on": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "tie": {
+          "$ref": "#/$defs/TieRole"
+        },
+        "time_off_s": {
+          "$ref": "#/$defs/Seconds"
+        },
+        "time_on_s": {
+          "$ref": "#/$defs/Seconds"
+        },
+        "tuplet": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TupletSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "velocity": {
+          "maximum": 127,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "voice": {
+          "description": "1-based, unique within (part, staff).",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "origin_ids",
+        "tick_on",
+        "tick_off",
+        "time_on_s",
+        "time_off_s",
+        "duration_rational",
+        "notated_type",
+        "dots",
+        "tuplet",
+        "midi",
+        "step",
+        "alter",
+        "octave",
+        "accidental_display",
+        "micro_cents",
+        "part_id",
+        "staff",
+        "voice",
+        "is_chord_member",
+        "velocity",
+        "dynamic",
+        "articulations",
+        "tie",
+        "slur",
+        "tab",
+        "techniques",
+        "bend_semitones",
+        "salience",
+        "confidence",
+        "flags",
+        "render"
+      ],
+      "type": "object"
+    },
+    "OrnamentPolicy": {
+      "description": "How ornaments (trills, mordents, grace notes) are treated. Section 2.0's profile table lists this parameter; Section 3.5's interface omitted it, so it is added here — dropping it would lose normative information.",
+      "enum": [
+        "strip",
+        "grace_only",
+        "all"
+      ]
+    },
+    "PageSize": {
+      "enum": [
+        "letter",
+        "a4",
+        "screen"
+      ]
+    },
+    "Part": {
+      "additionalProperties": false,
+      "properties": {
+        "abbreviation": {
+          "type": "string"
+        },
+        "chords": {
+          "description": "Usually populated only on the primary harmonic part.",
+          "items": {
+            "$ref": "#/$defs/ChordEvent"
+          },
+          "type": "array"
+        },
+        "clefs": {
+          "items": {
+            "$ref": "#/$defs/Clef"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "instrument": {
+          "$ref": "#/$defs/Instrument"
+        },
+        "kind": {
+          "$ref": "#/$defs/PartKind"
+        },
+        "loudness_lufs": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "notation": {
+          "$ref": "#/$defs/PartNotation"
+        },
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/Note"
+          },
+          "type": "array"
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "rests": {
+          "items": {
+            "$ref": "#/$defs/Rest"
+          },
+          "type": "array"
+        },
+        "staff_count": {
+          "maximum": 2,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "stem": {
+          "$ref": "#/$defs/StemName"
+        },
+        "transpose_semitones": {
+          "description": "Written versus sounding pitch.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "abbreviation",
+        "stem",
+        "kind",
+        "notation",
+        "clefs",
+        "staff_count",
+        "transpose_semitones",
+        "instrument",
+        "present",
+        "loudness_lufs",
+        "notes",
+        "rests",
+        "chords"
+      ],
+      "type": "object"
+    },
+    "PartKind": {
+      "enum": [
+        "pitched",
+        "percussion"
+      ]
+    },
+    "PartNotation": {
+      "enum": [
+        "standard",
+        "tab",
+        "standard+tab",
+        "percussion"
+      ]
+    },
+    "ProcessingStep": {
+      "additionalProperties": false,
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/Device"
+        },
+        "duration_ms": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "params_hash": {
+          "type": "string"
+        },
+        "stage": {
+          "description": "e.g. \"S3.basic_pitch\".",
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "stage",
+        "version",
+        "duration_ms",
+        "device",
+        "params_hash",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "app_version": {
+          "type": "string"
+        },
+        "created_at_utc": {
+          "description": "ISO-8601, UTC.",
+          "type": "string"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/$defs/ModelRecord"
+          },
+          "type": "array"
+        },
+        "seed": {
+          "description": "AUDIOSHEET_SEED (INV-2).",
+          "type": "integer"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/ProcessingStep"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "app_version",
+        "models",
+        "steps",
+        "created_at_utc",
+        "seed"
+      ],
+      "type": "object"
+    },
+    "QuantizeWeights": {
+      "additionalProperties": false,
+      "properties": {
+        "alpha": {
+          "description": "Fidelity: timing error in grid units.",
+          "type": "number"
+        },
+        "beta": {
+          "description": "Syncopation penalty.",
+          "type": "number"
+        },
+        "delta": {
+          "description": "Grid-switch penalty.",
+          "type": "number"
+        },
+        "gamma": {
+          "description": "Tuplet penalty. The architecture states Infinity at Simple; because JSON cannot carry Infinity, Simple uses a large finite value and the authoritative gate on tuplets is the empty allow_tuplets list.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "alpha",
+        "beta",
+        "gamma",
+        "delta"
+      ],
+      "type": "object"
+    },
+    "RawNote": {
+      "additionalProperties": false,
+      "description": "A note event straight out of S3/S4, before any symbolic decision is taken.",
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "energy_db": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "micro_cents": {
+          "description": "Deviation from equal temperament.",
+          "maximum": 100,
+          "minimum": -100,
+          "type": "number"
+        },
+        "midi": {
+          "maximum": 127,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "model": {
+          "$ref": "#/$defs/TranscriptionModel"
+        },
+        "octave_corrected": {
+          "type": "boolean"
+        },
+        "offset_s": {
+          "$ref": "#/$defs/Seconds"
+        },
+        "onset_s": {
+          "$ref": "#/$defs/Seconds"
+        },
+        "stem": {
+          "$ref": "#/$defs/StemName"
+        },
+        "velocity": {
+          "maximum": 127,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "stem",
+        "onset_s",
+        "offset_s",
+        "midi",
+        "micro_cents",
+        "velocity",
+        "energy_db",
+        "confidence",
+        "model",
+        "octave_corrected"
+      ],
+      "type": "object"
+    },
+    "RenderDirectives": {
+      "additionalProperties": false,
+      "properties": {
+        "measures_per_system": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "page_size": {
+          "$ref": "#/$defs/PageSize"
+        },
+        "show_ghost_notes": {
+          "description": "Draw flags.dropped notes faintly.",
+          "type": "boolean"
+        },
+        "system_breaks": {
+          "description": "Renderer hints; empty means auto.",
+          "items": {
+            "$ref": "#/$defs/Ticks"
+          },
+          "type": "array"
+        },
+        "target": {
+          "$ref": "#/$defs/RenderTarget"
+        }
+      },
+      "required": [
+        "target",
+        "system_breaks",
+        "measures_per_system",
+        "page_size",
+        "show_ghost_notes"
+      ],
+      "type": "object"
+    },
+    "RenderTarget": {
+      "enum": [
+        "sheet",
+        "tab",
+        "both"
+      ]
+    },
+    "Rest": {
+      "additionalProperties": false,
+      "properties": {
+        "dots": {
+          "$ref": "#/$defs/Dots"
+        },
+        "id": {
+          "type": "string"
+        },
+        "is_multi_measure": {
+          "type": "boolean"
+        },
+        "measure_count": {
+          "description": "> 1 only when is_multi_measure.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "notated_type": {
+          "$ref": "#/$defs/NotatedType"
+        },
+        "part_id": {
+          "type": "string"
+        },
+        "staff": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tick_off": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "tick_on": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "voice": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "tick_on",
+        "tick_off",
+        "notated_type",
+        "dots",
+        "part_id",
+        "staff",
+        "voice",
+        "is_multi_measure",
+        "measure_count"
+      ],
+      "type": "object"
+    },
+    "SalienceWeights": {
+      "additionalProperties": false,
+      "properties": {
+        "conf": {
+          "type": "number"
+        },
+        "contour": {
+          "type": "number"
+        },
+        "dur": {
+          "type": "number"
+        },
+        "energy": {
+          "type": "number"
+        },
+        "harm": {
+          "type": "number"
+        },
+        "metric": {
+          "type": "number"
+        },
+        "pitch": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "conf",
+        "metric",
+        "dur",
+        "pitch",
+        "energy",
+        "contour",
+        "harm"
+      ],
+      "type": "object"
+    },
+    "ScoreDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "diagnostics": {
+          "$ref": "#/$defs/Diagnostics"
+        },
+        "difficulty": {
+          "$ref": "#/$defs/DifficultyProfile"
+        },
+        "fingerprint": {
+          "description": "BLAKE3 over the audio hash and every stage fingerprint.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "$ref": "#/$defs/KeyEstimate"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/Part"
+          },
+          "type": "array"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "render": {
+          "$ref": "#/$defs/RenderDirectives"
+        },
+        "schema_version": {
+          "const": "1.0.0"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceInfo"
+        },
+        "timing": {
+          "$ref": "#/$defs/TimingGrid"
+        },
+        "transposition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Transposition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "id",
+        "fingerprint",
+        "source",
+        "timing",
+        "key",
+        "transposition",
+        "difficulty",
+        "parts",
+        "render",
+        "provenance",
+        "diagnostics"
+      ],
+      "type": "object"
+    },
+    "Seconds": {
+      "description": "Audio-domain time, absolute from the start of the decoded, untrimmed audio.",
+      "type": "number"
+    },
+    "SlurRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "start",
+            "stop"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "role"
+      ],
+      "type": "object"
+    },
+    "SourceFormat": {
+      "enum": [
+        "mp3",
+        "wav"
+      ]
+    },
+    "SourceInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "maximum": 2,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "duration_s": {
+          "$ref": "#/$defs/Seconds"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/SourceFormat"
+        },
+        "gain_db": {
+          "description": "Loudness-normalisation gain applied at S0.",
+          "type": "number"
+        },
+        "leading_silence_s": {
+          "$ref": "#/$defs/Seconds"
+        },
+        "sample_rate": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "trim_samples": {
+          "description": "Encoder-delay samples stripped at S0.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "filename",
+        "sha256",
+        "format",
+        "duration_s",
+        "sample_rate",
+        "channels",
+        "gain_db",
+        "trim_samples",
+        "leading_silence_s"
+      ],
+      "type": "object"
+    },
+    "StemName": {
+      "enum": [
+        "vocals",
+        "drums",
+        "bass",
+        "guitar",
+        "piano",
+        "other",
+        "mix"
+      ]
+    },
+    "Step": {
+      "enum": [
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "A",
+        "B"
+      ]
+    },
+    "SwingNotation": {
+      "enum": [
+        "flatten",
+        "directive",
+        "literal"
+      ]
+    },
+    "SwingSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "ratio": {
+          "description": "2.0 = triplet swing; 1.0 = straight.",
+          "maximum": 3,
+          "minimum": 1,
+          "type": "number"
+        },
+        "subdivision": {
+          "enum": [
+            8,
+            16
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "ratio",
+        "subdivision"
+      ],
+      "type": "object"
+    },
+    "TabPosition": {
+      "additionalProperties": false,
+      "properties": {
+        "finger": {
+          "$ref": "#/$defs/Finger"
+        },
+        "fret": {
+          "description": "0 = open; -1 = muted (chord frames only).",
+          "maximum": 24,
+          "minimum": -1,
+          "type": "integer"
+        },
+        "is_barre_root": {
+          "type": "boolean"
+        },
+        "position": {
+          "description": "Hand position — the fret under the index finger.",
+          "maximum": 24,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "string": {
+          "description": "1 = highest-pitched string (matches MusicXML and AlphaTab).",
+          "maximum": 12,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "string",
+        "fret",
+        "finger",
+        "is_barre_root",
+        "position"
+      ],
+      "type": "object"
+    },
+    "TabTechnique": {
+      "enum": [
+        "hammer_on",
+        "pull_off",
+        "slide_up",
+        "slide_down",
+        "slide_legato",
+        "bend",
+        "release",
+        "prebend",
+        "tap",
+        "slap",
+        "pop",
+        "natural_harmonic",
+        "pinch_harmonic"
+      ]
+    },
+    "TabWeights": {
+      "additionalProperties": false,
+      "properties": {
+        "k_cross": {
+          "type": "number"
+        },
+        "k_fret": {
+          "type": "number"
+        },
+        "k_high": {
+          "type": "number"
+        },
+        "k_legato": {
+          "type": "number"
+        },
+        "k_move": {
+          "type": "number"
+        },
+        "k_open": {
+          "type": "number"
+        },
+        "k_shift": {
+          "type": "number"
+        },
+        "k_string": {
+          "type": "number"
+        },
+        "k_stringJump": {
+          "type": "number"
+        },
+        "k_time": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "k_fret",
+        "k_open",
+        "k_string",
+        "k_high",
+        "k_move",
+        "k_shift",
+        "k_stringJump",
+        "k_legato",
+        "k_time",
+        "k_cross"
+      ],
+      "type": "object"
+    },
+    "TempoEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "bpm": {
+          "description": "Quarter-notes per minute.",
+          "maximum": 600,
+          "minimum": 1,
+          "type": "number"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "tick": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "time_s": {
+          "$ref": "#/$defs/Seconds"
+        }
+      },
+      "required": [
+        "tick",
+        "time_s",
+        "bpm",
+        "confidence"
+      ],
+      "type": "object"
+    },
+    "Ticks": {
+      "description": "Notation-domain time.",
+      "type": "integer"
+    },
+    "TieRole": {
+      "enum": [
+        "none",
+        "start",
+        "stop",
+        "continue"
+      ]
+    },
+    "TimeSignatureEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "denominator": {
+          "description": "Power of two.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "measure_index": {
+          "type": "integer"
+        },
+        "numerator": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tick": {
+          "$ref": "#/$defs/Ticks"
+        },
+        "time_s": {
+          "$ref": "#/$defs/Seconds"
+        }
+      },
+      "required": [
+        "tick",
+        "time_s",
+        "measure_index",
+        "numerator",
+        "denominator",
+        "confidence"
+      ],
+      "type": "object"
+    },
+    "TimingGrid": {
+      "additionalProperties": false,
+      "description": "The timing grid: the only legal bridge between seconds and ticks (INV-5).",
+      "properties": {
+        "anacrusis_ticks": {
+          "$ref": "#/$defs/Ticks",
+          "description": "Length of the pickup; 0 if none."
+        },
+        "beats": {
+          "items": {
+            "$ref": "#/$defs/Beat"
+          },
+          "type": "array"
+        },
+        "first_downbeat_s": {
+          "$ref": "#/$defs/Seconds"
+        },
+        "measures": {
+          "description": "Contiguous and gapless from tick 0.",
+          "items": {
+            "$ref": "#/$defs/Measure"
+          },
+          "type": "array"
+        },
+        "meter_confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "ppq": {
+          "const": 960
+        },
+        "swing": {
+          "$ref": "#/$defs/SwingSpec"
+        },
+        "tempo_map": {
+          "description": ">= 1 entry, sorted by tick, first tick == 0.",
+          "items": {
+            "$ref": "#/$defs/TempoEvent"
+          },
+          "type": "array"
+        },
+        "tempo_octave_corrected": {
+          "type": "boolean"
+        },
+        "time_signatures": {
+          "description": ">= 1 entry, sorted by tick, first tick == 0.",
+          "items": {
+            "$ref": "#/$defs/TimeSignatureEvent"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "ppq",
+        "tempo_map",
+        "time_signatures",
+        "beats",
+        "measures",
+        "swing",
+        "anacrusis_ticks",
+        "first_downbeat_s",
+        "meter_confidence",
+        "tempo_octave_corrected"
+      ],
+      "type": "object"
+    },
+    "TranscriptionModel": {
+      "enum": [
+        "basic-pitch",
+        "crepe",
+        "drum-cnn",
+        "tabcnn"
+      ]
+    },
+    "Transposition": {
+      "additionalProperties": false,
+      "properties": {
+        "as_capo": {
+          "type": "boolean"
+        },
+        "semitones": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "semitones",
+        "as_capo"
+      ],
+      "type": "object"
+    },
+    "Tuning": {
+      "additionalProperties": false,
+      "properties": {
+        "capo": {
+          "description": "Frets; 0 = none.",
+          "maximum": 12,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "\"Standard\", \"Drop D\", \"DADGAD\", \"Bass 4 Standard\".",
+          "type": "string"
+        },
+        "strings": {
+          "description": "MIDI pitch of each open string; index 0 = string 1 (highest).",
+          "items": {
+            "maximum": 127,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "strings",
+        "capo"
+      ],
+      "type": "object"
+    },
+    "TupletSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "description": "Notes actually played in the span.",
+          "minimum": 2,
+          "type": "integer"
+        },
+        "level": {
+          "description": "Nesting depth; one level of nesting is the maximum (Section 2.2.3).",
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "normal": {
+          "description": "Notes the span would normally hold.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "actual",
+        "normal",
+        "level"
+      ],
+      "type": "object"
+    },
+    "Voicing": {
+      "additionalProperties": false,
+      "properties": {
+        "barre": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BarreSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "diagram_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fingering": {
+          "items": {
+            "$ref": "#/$defs/Finger"
+          },
+          "type": "array"
+        },
+        "frame": {
+          "description": "Per-string fret; index 0 = string 1 (highest). null = not played, -1 = muted.",
+          "items": {
+            "anyOf": [
+              {
+                "maximum": 24,
+                "minimum": -1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "instrument": {
+          "$ref": "#/$defs/VoicingInstrument"
+        },
+        "is_common_shape": {
+          "type": "boolean"
+        },
+        "left_hand": {
+          "anyOf": [
+            {
+              "items": {
+                "maximum": 127,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Piano only: pitches assigned to the left hand."
+        },
+        "open_strings": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "position": {
+          "maximum": 24,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "right_hand": {
+          "anyOf": [
+            {
+              "items": {
+                "maximum": 127,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Piano only: pitches assigned to the right hand."
+        },
+        "score": {
+          "description": "From the scoring function in Section 2.2.2.",
+          "type": "number"
+        },
+        "shape_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "e.g. \"E-shape barre\", \"open C\"."
+        },
+        "span": {
+          "description": "max(fretted) - min(fretted).",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "instrument",
+        "frame",
+        "fingering",
+        "position",
+        "span",
+        "barre",
+        "open_strings",
+        "is_common_shape",
+        "shape_name",
+        "score",
+        "diagram_id",
+        "left_hand",
+        "right_hand"
+      ],
+      "type": "object"
+    },
+    "VoicingInstrument": {
+      "enum": [
+        "guitar",
+        "bass",
+        "ukulele",
+        "piano"
+      ]
+    }
+  },
+  "$id": "https://audiosheet.invalid/schema/score-document.schema.json",
+  "$ref": "#/$defs/ScoreDocument",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The only inter-stage contract in AudioSheet (INV-4). Generated from packages/schema/src/*.ts; do not hand-edit.",
+  "title": "ScoreDocument",
+  "x-generated-by": "scripts/gen_schema.py",
+  "x-source-fingerprint": "b3:22f760ceb187ebe44c42d53597c63ffd"
+}

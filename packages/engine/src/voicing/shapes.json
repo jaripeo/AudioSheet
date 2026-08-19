@@ -1,0 +1,21 @@
+{
+  "//": [
+    "Common guitar chord shapes - ARCHITECTURE.md Section 2.2.2, scoring term",
+    "is_common_shape. frame index 0 is string 1 (highest); null = not played,",
+    "-1 = muted, >= 0 = fret.",
+    "Phase 7 grows this to the ~40 shapes the scoring function assumes; Phase 0",
+    "seeds the open-position set that Simple mode is restricted to (step 6)."
+  ],
+  "shapes": [
+    { "name": "open E", "quality": "maj", "root_pc": 4, "frame": [0, 0, 1, 2, 2, 0], "position": 0, "barre": null },
+    { "name": "open A", "quality": "maj", "root_pc": 9, "frame": [0, 2, 2, 2, 0, -1], "position": 0, "barre": null },
+    { "name": "open D", "quality": "maj", "root_pc": 2, "frame": [2, 3, 2, 0, -1, -1], "position": 0, "barre": null },
+    { "name": "open G", "quality": "maj", "root_pc": 7, "frame": [3, 3, 0, 0, 2, 3], "position": 0, "barre": null },
+    { "name": "open C", "quality": "maj", "root_pc": 0, "frame": [0, 1, 0, 2, 3, -1], "position": 0, "barre": null },
+    { "name": "open Am", "quality": "min", "root_pc": 9, "frame": [0, 1, 2, 2, 0, -1], "position": 0, "barre": null },
+    { "name": "open Em", "quality": "min", "root_pc": 4, "frame": [0, 0, 0, 2, 2, 0], "position": 0, "barre": null },
+    { "name": "open Dm", "quality": "min", "root_pc": 2, "frame": [1, 3, 2, 0, -1, -1], "position": 0, "barre": null },
+    { "name": "E5 power chord", "quality": "5", "root_pc": 4, "frame": [null, null, null, 2, 2, 0], "position": 0, "barre": null },
+    { "name": "A5 power chord", "quality": "5", "root_pc": 9, "frame": [null, null, null, 2, 2, -1], "position": 0, "barre": null }
+  ]
+}

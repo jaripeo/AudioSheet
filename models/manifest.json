@@ -1,0 +1,97 @@
+{
+  "manifest_version": "1.0.0",
+  "comment": [
+    "Vendored model registry - ARCHITECTURE.md Section 4.2.",
+    "INV-1: models are vendored at build time and verified by sha256 on startup.",
+    "The runtime MUST fail closed (E_MODEL_MISSING / E_MODEL_INTEGRITY) rather than",
+    "attempting a download.",
+    "status is 'pending' until the file is vendored and its digest pinned; sha256 is",
+    "empty while pending. scripts/verify_models.py --strict fails on any pending entry",
+    "and is a release gate, not a developer-loop check.",
+    "Licences MUST be re-verified at vendoring time and reproduced in",
+    "THIRD_PARTY_LICENSES.md: several separation-model weights carry research-use",
+    "conditions distinct from their code licence, and that is a shipping blocker."
+  ],
+  "models": [
+    {
+      "name": "basic-pitch",
+      "filename": "basic_pitch/nmp.onnx",
+      "sha256": "",
+      "license": "Apache-2.0 (code); weights licence to be re-verified at vendoring",
+      "source_url": "https://github.com/spotify/basic-pitch",
+      "runtime": "onnxruntime",
+      "status": "pending",
+      "phase": 5
+    },
+    {
+      "name": "crepe-full",
+      "filename": "crepe/crepe_full.onnx",
+      "sha256": "",
+      "license": "MIT (code); weights licence to be re-verified at vendoring",
+      "source_url": "https://github.com/marl/crepe",
+      "runtime": "onnxruntime",
+      "status": "pending",
+      "phase": 5
+    },
+    {
+      "name": "crepe-tiny",
+      "filename": "crepe/crepe_tiny.onnx",
+      "sha256": "",
+      "license": "MIT (code); weights licence to be re-verified at vendoring",
+      "source_url": "https://github.com/marl/crepe",
+      "runtime": "onnxruntime",
+      "status": "pending",
+      "phase": 5
+    },
+    {
+      "name": "htdemucs_6s",
+      "filename": "demucs/htdemucs_6s.th",
+      "sha256": "",
+      "license": "MIT (code); weights trained on MUSDB18-HQ - re-verify before shipping",
+      "source_url": "https://github.com/adefossez/demucs",
+      "runtime": "pytorch",
+      "status": "pending",
+      "phase": 4
+    },
+    {
+      "name": "beat-downbeat",
+      "filename": "beat/beat_downbeat.onnx",
+      "sha256": "",
+      "license": "to be determined at vendoring",
+      "source_url": "",
+      "runtime": "onnxruntime",
+      "status": "pending",
+      "phase": 3
+    },
+    {
+      "name": "chord-btc",
+      "filename": "chord/chord_btc.onnx",
+      "sha256": "",
+      "license": "to be determined at vendoring",
+      "source_url": "",
+      "runtime": "onnxruntime",
+      "status": "pending",
+      "phase": 6
+    },
+    {
+      "name": "drum-cnn",
+      "filename": "drums/drum_cnn.onnx",
+      "sha256": "",
+      "license": "to be determined at vendoring",
+      "source_url": "",
+      "runtime": "onnxruntime",
+      "status": "pending",
+      "phase": 5
+    },
+    {
+      "name": "gm-soundfont",
+      "filename": "soundfont/gm.sf2",
+      "sha256": "",
+      "license": "to be determined at vendoring",
+      "source_url": "",
+      "runtime": "alphasynth",
+      "status": "pending",
+      "phase": 2
+    }
+  ]
+}

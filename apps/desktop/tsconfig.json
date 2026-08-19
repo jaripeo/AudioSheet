@@ -1,0 +1,13 @@
+{
+  // In scope from Phase 8, when electron and its types are installed
+  // (ARCHITECTURE.md Section 5.3). Not referenced by the root solution file.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "types": ["node"]
+  },
+  "include": ["electron/**/*.ts"]
+}

@@ -1,0 +1,79 @@
+# CI - ARCHITECTURE.md Section 5.3, Phase 0 step 5.
+#
+# The Linux CPU-only target is allowed a 3x wall-clock multiplier over the
+# reference machine but must meet every accuracy gate identically (Appendix 5.6).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: phase gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Sync Python dependencies
+        working-directory: core
+        run: uv sync --group dev
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      # A drifted generated artefact is a hard failure: the TypeScript in
+      # packages/schema/src is the single source of truth (INV-4).
+      - name: Schema drift
+        run: uv run --project core python scripts/gen_schema.py --check
+
+      - name: Lint (Python)
+        run: |
+          uv run --project core ruff check core/audiosheet core/tests scripts
+          uv run --project core ruff format --check core/audiosheet core/tests scripts
+          uv run --project core mypy --strict scripts
+      - name: Types (Python)
+        working-directory: core
+        run: uv run mypy
+
+      - name: Typecheck (TypeScript)
+        run: pnpm run typecheck
+
+      - name: Lint (TypeScript)
+        run: pnpm run lint
+
+      - name: Tests (Python)
+        working-directory: core
+        run: uv run pytest
+
+      - name: Tests (TypeScript)
+        run: pnpm run test
+
+      - name: Model manifest
+        run: uv run --project core python scripts/verify_models.py
+
+      - name: S6 gate over the hand-authored fixture
+        working-directory: core
+        run: uv run python -m audiosheet.cli validate tests/fixtures/handmade/simple_scale.json

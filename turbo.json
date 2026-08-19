@@ -1,0 +1,19 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalDependencies": ["tsconfig.base.json", "eslint.config.js"],
+  "tasks": {
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["src/**", "test/**", "tsconfig.json"],
+      "outputs": ["dist/**", "*.tsbuildinfo"]
+    },
+    "lint": {
+      "inputs": ["src/**", "test/**"]
+    },
+    "test": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["src/**", "test/**"]
+    }
+  }
+}

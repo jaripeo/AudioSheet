@@ -1,0 +1,18 @@
+{
+  "name": "@audiosheet/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "React UI, shared by the desktop shell and the offline PWA target.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --build --force",
+    "lint": "eslint src"
+  },
+  "//dependencies": [
+    "react, react-dom, vite, zustand, vexflow, alphatab and wavesurfer.js enter the",
+    "dependency tree in Phase 2 (ARCHITECTURE.md Section 5.3). Phase 0 ships the",
+    "sources so the Section 5.1 tree is complete; nothing here is built yet."
+  ]
+}

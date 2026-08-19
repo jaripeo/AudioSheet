@@ -1,0 +1,45 @@
+{
+  "//": [
+    "NORMATIVE fretboard-optimisation weights - ARCHITECTURE.md Section 2.3.4.",
+    "Mirrored into each DifficultyProfile.tab_weights by profiles.json; this file is",
+    "the table the profiles are checked against, so a typo in either one is caught."
+  ],
+  "weights": {
+    "simple": {
+      "k_fret": 3.0,
+      "k_open": 3.0,
+      "k_string": 0.5,
+      "k_high": 6.0,
+      "k_move": 2.0,
+      "k_shift": 4.0,
+      "k_stringJump": 0.8,
+      "k_legato": 0.0,
+      "k_time": 3.0,
+      "k_cross": 2.0
+    },
+    "medium": {
+      "k_fret": 1.5,
+      "k_open": 1.5,
+      "k_string": 0.5,
+      "k_high": 2.0,
+      "k_move": 1.2,
+      "k_shift": 2.0,
+      "k_stringJump": 0.5,
+      "k_legato": 1.0,
+      "k_time": 2.0,
+      "k_cross": 1.0
+    },
+    "complex": {
+      "k_fret": 0.8,
+      "k_open": 0.5,
+      "k_string": 0.3,
+      "k_high": 0.5,
+      "k_move": 0.8,
+      "k_shift": 1.0,
+      "k_stringJump": 0.3,
+      "k_legato": 1.5,
+      "k_time": 1.0,
+      "k_cross": 0.5
+    }
+  }
+}

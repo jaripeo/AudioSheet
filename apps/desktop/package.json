@@ -1,0 +1,17 @@
+{
+  "name": "@audiosheet/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Electron shell hosting the Python core as a sidecar.",
+  "scripts": {
+    "typecheck": "tsc --build --force",
+    "lint": "eslint electron src",
+    "build": "electron-builder --config electron-builder.yml"
+  },
+  "//dependencies": [
+    "electron, electron-builder and @audiosheet/web enter the dependency tree in",
+    "Phase 8 (ARCHITECTURE.md Section 5.3). Phase 0 ships the sources so the",
+    "Section 5.1 tree is complete; nothing here is compiled or installed yet."
+  ]
+}

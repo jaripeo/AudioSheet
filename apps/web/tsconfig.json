@@ -1,0 +1,22 @@
+{
+  // In scope from Phase 2, when React, Vite and the renderers are installed
+  // (ARCHITECTURE.md Section 5.3). Not referenced by the root solution file.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "public/**/*.ts"],
+  "references": [
+    { "path": "../../packages/schema" },
+    { "path": "../../packages/engine" },
+    { "path": "../../packages/render-core" },
+    { "path": "../../packages/render-sheet" },
+    { "path": "../../packages/render-tab" },
+    { "path": "../../packages/playback" },
+    { "path": "../../packages/ipc" }
+  ]
+}

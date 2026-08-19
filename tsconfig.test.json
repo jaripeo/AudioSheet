@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"]
+  },
+  "include": ["packages/*/test/**/*.ts", "vitest.config.ts", "eslint.config.js"],
+  "references": [
+    { "path": "packages/schema" },
+    { "path": "packages/engine" },
+    { "path": "packages/render-core" },
+    { "path": "packages/render-sheet" },
+    { "path": "packages/render-tab" },
+    { "path": "packages/playback" },
+    { "path": "packages/ipc" }
+  ]
+}

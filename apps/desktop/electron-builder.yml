@@ -1,0 +1,54 @@
+# Packaging configuration - ARCHITECTURE.md Section 5.3, Phase 8.
+#
+# Phase 8 produces signed installers for macOS (arm64 + x64) and Windows x64, and
+# the Definition of Done requires a fresh install on a clean machine to complete a
+# 4-minute transcription with networking disabled at the OS level.
+#
+# The bundle ships the Python core and every model file: INV-1 means there is no
+# first-run download, so the installed size is dominated by models
+# (budget: <= 900 MB installed, Section 4.3).
+
+appId: local.audiosheet.app
+productName: AudioSheet
+copyright: AudioSheet
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**
+  - "!**/*.map"
+
+extraResources:
+  # The Python core and its virtual environment, built by the sidecar packaging step.
+  - from: ../../core/dist/sidecar
+    to: sidecar
+  # Vendored models; verified by sha256 on startup (E_MODEL_INTEGRITY).
+  - from: ../../models
+    to: models
+    filter:
+      - "**/*"
+      - "!**/.gitattributes"
+
+mac:
+  category: public.app-category.music
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  # Phase 8 supplies the signing identity and notarisation credentials via CI
+  # secrets; they are deliberately absent from the repository.
+  entitlements: build/entitlements.mac.plist
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Audio
